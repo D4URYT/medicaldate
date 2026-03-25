@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+ï»¿import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 
 const EMPTY_REGISTER = { full_name: "", email: "", password: "", role: "client" };
 const EMPTY_LOGIN = { email: "", password: "" };
+const DEFAULT_AVATAR = "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=facearea&w=200&h=200&q=80";
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
@@ -14,6 +15,17 @@ export default function App() {
   const [services, setServices] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [users, setUsers] = useState([]);
+  const [adminQuery, setAdminQuery] = useState("");
+  const [adminSelectedId, setAdminSelectedId] = useState("");
+  const [adminForm, setAdminForm] = useState({
+    full_name: "",
+    phone: "",
+    avatar_url: "",
+    role: "client",
+    is_active: true,
+  });
+  const [showProfile, setShowProfile] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "" });
 
   const [newService, setNewService] = useState({ name: "", description: "", duration_min: 30, price: 0 });
   const [newAvailability, setNewAvailability] = useState({ day_of_week: 1, start_time: "09:00", end_time: "17:00" });
@@ -104,6 +116,17 @@ export default function App() {
     }
   }
 
+  async function changePassword(event) {
+    event.preventDefault();
+    try {
+      await api.auth.changePassword(passwordForm, token);
+      setPasswordForm({ current_password: "", new_password: "" });
+      setMessage("Contrasena actualizada.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
   async function createService(event) {
     event.preventDefault();
     try {
@@ -183,6 +206,50 @@ export default function App() {
     }
   }
 
+  async function saveAdminUser(event) {
+    event.preventDefault();
+    if (!adminSelectedId) {
+      setMessage("Selecciona un usuario.");
+      return;
+    }
+    try {
+      const updated = await api.users.updateAdminUser(Number(adminSelectedId), adminForm, token);
+      const usersRes = await api.users.listUsers(token);
+      setUsers(usersRes.items || []);
+      setAdminForm({
+        full_name: updated.full_name || "",
+        phone: updated.phone || "",
+        avatar_url: updated.avatar_url || "",
+        role: updated.role || "client",
+        is_active: Boolean(updated.is_active),
+      });
+      setMessage("Usuario actualizado.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  function selectAdminUser(user) {
+    setAdminSelectedId(String(user.auth_user_id));
+    setAdminForm({
+      full_name: user.full_name || "",
+      phone: user.phone || "",
+      avatar_url: user.avatar_url || "",
+      role: user.role || "client",
+      is_active: Boolean(user.is_active),
+    });
+  }
+
+  const filteredUsers = useMemo(() => {
+    if (!adminQuery) return users;
+    const q = adminQuery.toLowerCase();
+    return users.filter((u) =>
+      [u.full_name, u.email, String(u.auth_user_id), u.role].some((field) =>
+        String(field || "").toLowerCase().includes(q)
+      )
+    );
+  }, [adminQuery, users]);
+
   const heroStats = useMemo(
     () => [
       { label: "Citas activas", value: totalAppointments },
@@ -219,7 +286,7 @@ export default function App() {
               <p className="eyebrow">Control total de tu agenda</p>
               <h1>Agenda, confirma y cobra con una experiencia premium.</h1>
               <p className="lead">
-                Centraliza servicios, disponibilidad y citas en un solo lugar. Diseñado para equipos que quieren menos
+                Centraliza servicios, disponibilidad y citas en un solo lugar. Disenado para equipos que quieren menos
                 friccion y mas conversion.
               </p>
               <div className="hero-highlights">
@@ -363,7 +430,7 @@ export default function App() {
               <p className="muted">Ciudad de Mexico</p>
             </div>
           </div>
-          <p className="footer-note">© 2026 CitasPro. Todos los derechos reservados.</p>
+          <p className="footer-note">Â© 2026 CitasPro. Todos los derechos reservados.</p>
         </footer>
       </div>
     );
@@ -386,15 +453,73 @@ export default function App() {
           {authUser.role === "admin" && <a href="#admin">Admin</a>}
         </nav>
         <div className="nav-actions">
-          <div className="user-chip">
-            <span>{authUser.email}</span>
-            <span className="pill">{authUser.role}</span>
-          </div>
+          <button className="profile-chip" onClick={() => setShowProfile(true)}>
+            <img src={profile?.avatar_url || DEFAULT_AVATAR} alt="avatar" />
+            <span>{profile?.full_name || authUser.email}</span>
+          </button>
           <button className="danger" onClick={logout}>Cerrar sesion</button>
         </div>
       </header>
 
       <main className="container">
+        {showProfile && (
+          <section className="section">
+            <div className="section-header">
+              <h2>Mi cuenta</h2>
+              <button className="secondary" onClick={() => setShowProfile(false)}>Cerrar</button>
+            </div>
+            <div className="grid two">
+              <div className="card">
+                <div className="profile-header">
+                  <img src={profile?.avatar_url || DEFAULT_AVATAR} alt="avatar" />
+                  <div>
+                    <h3>{profile?.full_name || "Mi perfil"}</h3>
+                    <p className="muted">{authUser.email}</p>
+                  </div>
+                </div>
+                <form className="grid" onSubmit={saveProfile}>
+                  <input
+                    placeholder="Nombre completo"
+                    value={profile?.full_name || ""}
+                    onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
+                  />
+                  <input
+                    placeholder="Telefono"
+                    value={profile?.phone || ""}
+                    onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                  />
+                  <input
+                    placeholder="Avatar URL"
+                    value={profile?.avatar_url || ""}
+                    onChange={(e) => setProfile({ ...profile, avatar_url: e.target.value })}
+                  />
+                  <button>Guardar perfil</button>
+                </form>
+              </div>
+              <div className="card">
+                <h3>Seguridad</h3>
+                <form className="grid" onSubmit={changePassword}>
+                  <input
+                    type="password"
+                    placeholder="Contrasena actual"
+                    value={passwordForm.current_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Nueva contrasena"
+                    value={passwordForm.new_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                    required
+                  />
+                  <button className="secondary">Actualizar contrasena</button>
+                </form>
+              </div>
+            </div>
+          </section>
+        )}
+
         <section id="dashboard" className="section">
           <div className="section-header">
             <h2>Dashboard</h2>
@@ -558,16 +683,81 @@ export default function App() {
           <section id="admin" className="section">
             <div className="section-header">
               <h2>Usuarios del sistema</h2>
-              <p className="muted">Listado operativo de cuentas activas.</p>
+              <p className="muted">Administra perfiles, roles y estado.</p>
             </div>
-            <div className="card">
-              <ul className="list">
-                {users.map((u) => (
-                  <li key={u.auth_user_id}>
-                    <strong>#{u.auth_user_id}</strong> {u.full_name} | {u.email} | {u.role}
-                  </li>
-                ))}
-              </ul>
+            <div className="grid two">
+              <div className="card">
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <h3>Directorio</h3>
+                  <input
+                    className="input-compact"
+                    placeholder="Buscar..."
+                    value={adminQuery}
+                    onChange={(e) => setAdminQuery(e.target.value)}
+                  />
+                </div>
+                <ul className="list">
+                  {filteredUsers.map((u) => (
+                    <li key={u.auth_user_id} className={`list-item ${String(u.auth_user_id) === adminSelectedId ? "active" : ""}`}>
+                      <button className="link-button" onClick={() => selectAdminUser(u)}>
+                        <div>
+                          <strong>#{u.auth_user_id}</strong> {u.full_name}
+                          <p className="muted">{u.email}</p>
+                        </div>
+                        <span className={`status-badge ${u.is_active ? "status-confirmada" : "status-cancelada"}`}>
+                          {u.is_active ? "activo" : "inactivo"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="card">
+                <h3>Detalle y acciones</h3>
+                <form className="grid" onSubmit={saveAdminUser}>
+                  <input
+                    placeholder="Nombre completo"
+                    value={adminForm.full_name}
+                    onChange={(e) => setAdminForm({ ...adminForm, full_name: e.target.value })}
+                    required
+                  />
+                  <input
+                    placeholder="Telefono"
+                    value={adminForm.phone || ""}
+                    onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value })}
+                  />
+                  <input
+                    placeholder="Avatar URL"
+                    value={adminForm.avatar_url || ""}
+                    onChange={(e) => setAdminForm({ ...adminForm, avatar_url: e.target.value })}
+                  />
+                  <select value={adminForm.role} onChange={(e) => setAdminForm({ ...adminForm, role: e.target.value })}>
+                    <option value="client">Cliente</option>
+                    <option value="provider">Proveedor</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                  <div className="row">
+                    <button type="submit">Guardar cambios</button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setAdminForm({ ...adminForm, is_active: true })}
+                    >
+                      Activar
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => setAdminForm({ ...adminForm, is_active: false })}
+                    >
+                      Desactivar
+                    </button>
+                  </div>
+                </form>
+                <p className="muted" style={{ marginTop: "12px" }}>
+                  Recuerda guardar para aplicar cambios de rol o estado.
+                </p>
+              </div>
             </div>
           </section>
         )}
@@ -599,7 +789,7 @@ export default function App() {
             <p className="muted">PostgreSQL saludable</p>
           </div>
         </div>
-        <p className="footer-note">© 2026 CitasPro. Todos los derechos reservados.</p>
+        <p className="footer-note">Â© 2026 CitasPro. Todos los derechos reservados.</p>
       </footer>
     </div>
   );

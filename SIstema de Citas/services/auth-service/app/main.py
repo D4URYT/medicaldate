@@ -47,6 +47,10 @@ class ChangePasswordPayload(BaseModel):
     new_password: str
 
 
+class RolePayload(BaseModel):
+    role: Literal["admin", "provider", "client"]
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -113,6 +117,13 @@ def get_token_from_header(authorization: str = Header(default="")) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Bearer token")
     return authorization.replace("Bearer ", "", 1)
+
+
+def ensure_admin(token: str) -> dict:
+    caller = decode_token(token)
+    if caller.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return caller
 
 
 @app.get("/health")
@@ -188,11 +199,32 @@ def verify(token: str = Depends(get_token_from_header)) -> dict:
     }
 
 
+@app.get("/users")
+def list_users(token: str = Depends(get_token_from_header)) -> dict:
+    ensure_admin(token)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, full_name, email, role, is_active, created_at FROM credentials ORDER BY id DESC"
+        ).fetchall()
+    return {"items": rows}
+
+
+@app.get("/users/{user_id}")
+def get_user(user_id: int, token: str = Depends(get_token_from_header)) -> dict:
+    ensure_admin(token)
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, full_name, email, role, is_active, created_at FROM credentials WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return row
+
+
 @app.patch("/users/{user_id}/deactivate")
 def deactivate_user(user_id: int, token: str = Depends(get_token_from_header)) -> dict:
-    caller = decode_token(token)
-    if caller.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin role required")
+    ensure_admin(token)
 
     with get_conn() as conn:
         cur = conn.execute("UPDATE credentials SET is_active = FALSE WHERE id = %s", (user_id,))
@@ -201,6 +233,26 @@ def deactivate_user(user_id: int, token: str = Depends(get_token_from_header)) -
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"message": "User deactivated"}
+
+
+@app.patch("/users/{user_id}/activate")
+def activate_user(user_id: int, token: str = Depends(get_token_from_header)) -> dict:
+    ensure_admin(token)
+    with get_conn() as conn:
+        cur = conn.execute("UPDATE credentials SET is_active = TRUE WHERE id = %s", (user_id,))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User activated"}
+
+
+@app.patch("/users/{user_id}/role")
+def update_role(user_id: int, payload: RolePayload, token: str = Depends(get_token_from_header)) -> dict:
+    ensure_admin(token)
+    with get_conn() as conn:
+        cur = conn.execute("UPDATE credentials SET role = %s WHERE id = %s", (payload.role, user_id))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "Role updated"}
 
 
 @app.patch("/change-password")

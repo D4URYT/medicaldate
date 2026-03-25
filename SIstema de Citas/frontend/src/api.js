@@ -24,11 +24,14 @@ export const api = {
     register: (payload) => apiRequest(AUTH_API, "/register", "POST", payload),
     login: (payload) => apiRequest(AUTH_API, "/login", "POST", payload),
     verify: (token) => apiRequest(AUTH_API, "/verify", "GET", null, token),
+    changePassword: (payload, token) => apiRequest(AUTH_API, "/change-password", "PATCH", payload, token),
   },
   users: {
     me: (token) => apiRequest(USERS_API, "/me", "GET", null, token),
     updateMe: (payload, token) => apiRequest(USERS_API, "/me", "PUT", payload, token),
     listUsers: (token) => apiRequest(USERS_API, "/users", "GET", null, token),
+    getAdminUser: (id, token) => apiRequest(USERS_API, `/admin/users/${id}`, "GET", null, token),
+    updateAdminUser: (id, payload, token) => apiRequest(USERS_API, `/admin/users/${id}`, "PATCH", payload, token),
   },
   appointments: {
     listServices: () => apiRequest(APPOINTMENTS_API, "/services"),
