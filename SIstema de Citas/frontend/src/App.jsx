@@ -1,55 +1,186 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  CalendarDays,
+  Camera,
+  ChartColumn,
+  Clock3,
+  LayoutDashboard,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Stethoscope,
+  UserCog,
+  Users,
+} from "lucide-react";
 import { api } from "./api";
 
 const EMPTY_REGISTER = { full_name: "", email: "", password: "", role: "client" };
 const EMPTY_LOGIN = { email: "", password: "" };
-const DEFAULT_AVATAR = "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=facearea&w=200&h=200&q=80";
+const EMPTY_PASSWORD = { current_password: "", new_password: "" };
+const DAY_OPTIONS = [
+  { value: 0, label: "Lunes" },
+  { value: 1, label: "Martes" },
+  { value: 2, label: "Miercoles" },
+  { value: 3, label: "Jueves" },
+  { value: 4, label: "Viernes" },
+  { value: 5, label: "Sabado" },
+  { value: 6, label: "Domingo" },
+];
+
+const EMPTY_SERVICE_FORM = {
+  id: null,
+  name: "",
+  description: "",
+  duration_min: 30,
+  price: 0,
+  start_time: "09:00",
+  end_time: "17:00",
+  days_of_week: [0, 1, 2, 3, 4],
+};
+
+const EMPTY_USER_FORM = {
+  full_name: "",
+  email: "",
+  password: "",
+  role: "client",
+  phone: "",
+  avatar_url: "",
+};
+
+const EMPTY_ADMIN_EDIT = {
+  full_name: "",
+  phone: "",
+  avatar_url: "",
+  role: "client",
+  is_active: true,
+};
+
+const EMPTY_APPOINTMENT = {
+  provider_id: "",
+  service_id: "",
+  date: "",
+  start_time: "09:00",
+  notes: "",
+};
+
+function statusLabel(status) {
+  return status === "pendiente" ? "Pendiente" : status === "confirmada" ? "Confirmada" : status === "completada" ? "Completada" : "Cancelada";
+}
+
+function getAvatarLabel(name, email = "") {
+  return (name || email || "Usuario").trim();
+}
+
+function getAvatarInitials(value) {
+  const parts = String(value || "Usuario")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (parts.length === 0) return "U";
+  return parts.map((part) => part[0]?.toUpperCase() || "").join("");
+}
+
+function createDefaultAvatar(label) {
+  const initials = getAvatarInitials(label);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="${label}">
+      <defs>
+        <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#0f766e" />
+          <stop offset="100%" stop-color="#115e59" />
+        </linearGradient>
+      </defs>
+      <rect width="120" height="120" rx="28" fill="url(#g)" />
+      <circle cx="60" cy="44" r="18" fill="#d7f3ef" />
+      <path d="M31 95c4-16 17-24 29-24s25 8 29 24" fill="#d7f3ef" />
+      <text x="60" y="108" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">${initials}</text>
+    </svg>
+  `;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function Avatar({ src, name, email, alt, className = "" }) {
+  const [hasError, setHasError] = useState(false);
+  const label = getAvatarLabel(name, email);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const resolvedSrc = src && !hasError ? src : createDefaultAvatar(label);
+
+  return (
+    <img
+      className={className}
+      src={resolvedSrc}
+      alt={alt}
+      onError={() => setHasError(true)}
+    />
+  );
+}
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [authUser, setAuthUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [message, setMessage] = useState("");
+  const [activeView, setActiveView] = useState("dashboard");
+
   const [registerData, setRegisterData] = useState(EMPTY_REGISTER);
   const [loginData, setLoginData] = useState(EMPTY_LOGIN);
-  const [message, setMessage] = useState("");
+  const [passwordForm, setPasswordForm] = useState(EMPTY_PASSWORD);
+
   const [services, setServices] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [users, setUsers] = useState([]);
+  const [availability, setAvailability] = useState([]);
+
   const [adminQuery, setAdminQuery] = useState("");
   const [adminSelectedId, setAdminSelectedId] = useState("");
-  const [adminForm, setAdminForm] = useState({
-    full_name: "",
-    phone: "",
-    avatar_url: "",
-    role: "client",
-    is_active: true,
-  });
-  const [showProfile, setShowProfile] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "" });
+  const [adminForm, setAdminForm] = useState(EMPTY_ADMIN_EDIT);
 
-  const [newService, setNewService] = useState({ name: "", description: "", duration_min: 30, price: 0 });
-  const [newAvailability, setNewAvailability] = useState({ day_of_week: 1, start_time: "09:00", end_time: "17:00" });
-  const [newAppointment, setNewAppointment] = useState({ provider_id: "", service_id: "", date: "", start_time: "09:00", notes: "" });
+  const [newAppointment, setNewAppointment] = useState(EMPTY_APPOINTMENT);
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE_FORM);
+  const [userModalOpen, setUserModalOpen] = useState(false);
+  const [userCreateForm, setUserCreateForm] = useState(EMPTY_USER_FORM);
+
+  const isAdmin = authUser?.role === "admin";
+  const canManageServices = authUser?.role === "provider" || isAdmin;
+  const canCreateAppointments = authUser?.role === "client" || isAdmin;
+
   const selectedService = services.find((service) => service.id === Number(newAppointment.service_id));
-
-  const totalAppointments = appointments.length;
-  const totalServices = services.length;
-  const totalUsers = users.length;
 
   async function bootstrap(currentToken) {
     try {
       const verified = await api.auth.verify(currentToken);
       setAuthUser(verified);
-      const me = await api.users.me(currentToken);
+      const [me, servicesRes, appointmentsRes] = await Promise.all([
+        api.users.me(currentToken),
+        api.appointments.listServices(),
+        api.appointments.myAppointments(currentToken),
+      ]);
+
       setProfile(me);
-      const servicesRes = await api.appointments.listServices();
       setServices(servicesRes.items || []);
-      const appointmentsRes = await api.appointments.myAppointments(currentToken);
       setAppointments(appointmentsRes.items || []);
 
       if (verified.role === "admin") {
         const usersRes = await api.users.listUsers(currentToken);
         setUsers(usersRes.items || []);
+      } else {
+        setUsers([]);
+      }
+
+      if (verified.role === "provider" || verified.role === "admin") {
+        const availabilityRes = await api.appointments.getAvailability(verified.user_id);
+        setAvailability(availabilityRes.items || []);
+      } else {
+        setAvailability([]);
       }
     } catch (error) {
       setMessage(error.message);
@@ -69,7 +200,71 @@ export default function App() {
     setAuthUser(null);
     setProfile(null);
     setAppointments([]);
+    setServices([]);
     setUsers([]);
+    setAvailability([]);
+    setActiveView("dashboard");
+  }
+
+  function openCreateServiceModal() {
+    setServiceForm(EMPTY_SERVICE_FORM);
+    setServiceModalOpen(true);
+  }
+
+  function openEditServiceModal(service) {
+    setServiceForm({
+      id: service.id,
+      name: service.name || "",
+      description: service.description || "",
+      duration_min: service.duration_min || 30,
+      price: service.price || 0,
+      start_time: "09:00",
+      end_time: "17:00",
+      days_of_week: [],
+    });
+    setServiceModalOpen(true);
+  }
+
+  function toggleDay(day) {
+    setServiceForm((current) => {
+      const exists = current.days_of_week.includes(day);
+      const nextDays = exists ? current.days_of_week.filter((item) => item !== day) : [...current.days_of_week, day];
+      return { ...current, days_of_week: nextDays.sort((a, b) => a - b) };
+    });
+  }
+
+  function selectAdminUser(user) {
+    setAdminSelectedId(String(user.auth_user_id));
+    setAdminForm({
+      full_name: user.full_name || "",
+      phone: user.phone || "",
+      avatar_url: user.avatar_url || "",
+      role: user.role || "client",
+      is_active: Boolean(user.is_active),
+    });
+  }
+
+  async function refreshAdminUsers() {
+    if (!token || !isAdmin) return;
+    const usersRes = await api.users.listUsers(token);
+    setUsers(usersRes.items || []);
+  }
+
+  async function refreshServices() {
+    const servicesRes = await api.appointments.listServices();
+    setServices(servicesRes.items || []);
+  }
+
+  async function refreshAppointments() {
+    if (!token) return;
+    const appointmentsRes = await api.appointments.myAppointments(token);
+    setAppointments(appointmentsRes.items || []);
+  }
+
+  async function refreshAvailability() {
+    if (!token || !authUser || !canManageServices) return;
+    const availabilityRes = await api.appointments.getAvailability(authUser.user_id);
+    setAvailability(availabilityRes.items || []);
   }
 
   async function handleRegister(event) {
@@ -98,7 +293,7 @@ export default function App() {
     }
   }
 
-  async function saveProfile(event) {
+  async function saveSettings(event) {
     event.preventDefault();
     try {
       const updated = await api.users.updateMe(
@@ -110,7 +305,7 @@ export default function App() {
         token
       );
       setProfile(updated);
-      setMessage("Perfil actualizado.");
+      setMessage("Configuracion actualizada.");
     } catch (error) {
       setMessage(error.message);
     }
@@ -120,44 +315,54 @@ export default function App() {
     event.preventDefault();
     try {
       await api.auth.changePassword(passwordForm, token);
-      setPasswordForm({ current_password: "", new_password: "" });
+      setPasswordForm(EMPTY_PASSWORD);
       setMessage("Contrasena actualizada.");
     } catch (error) {
       setMessage(error.message);
     }
   }
 
-  async function createService(event) {
+  async function submitService(event) {
     event.preventDefault();
     try {
-      await api.appointments.createService(
-        {
-          ...newService,
-          duration_min: Number(newService.duration_min),
-          price: Number(newService.price),
-        },
-        token
-      );
-      const servicesRes = await api.appointments.listServices();
-      setServices(servicesRes.items || []);
-      setMessage("Servicio creado.");
+      const payload = {
+        name: serviceForm.name,
+        description: serviceForm.description,
+        duration_min: Number(serviceForm.duration_min),
+        price: Number(serviceForm.price),
+      };
+
+      if (serviceForm.id) {
+        await api.appointments.updateService(serviceForm.id, payload, token);
+        setMessage("Servicio actualizado.");
+      } else {
+        await api.appointments.createService(payload, token);
+        if (serviceForm.days_of_week.length > 0) {
+          await api.appointments.createAvailability(
+            {
+              days_of_week: serviceForm.days_of_week,
+              start_time: serviceForm.start_time,
+              end_time: serviceForm.end_time,
+            },
+            token
+          );
+        }
+        setMessage("Servicio creado.");
+      }
+
+      setServiceModalOpen(false);
+      setServiceForm(EMPTY_SERVICE_FORM);
+      await Promise.all([refreshServices(), refreshAvailability()]);
     } catch (error) {
       setMessage(error.message);
     }
   }
 
-  async function createAvailability(event) {
-    event.preventDefault();
+  async function removeService(id) {
     try {
-      await api.appointments.createAvailability(
-        {
-          day_of_week: Number(newAvailability.day_of_week),
-          start_time: newAvailability.start_time,
-          end_time: newAvailability.end_time,
-        },
-        token
-      );
-      setMessage("Disponibilidad guardada.");
+      await api.appointments.deleteService(id, token);
+      await refreshServices();
+      setMessage("Servicio eliminado.");
     } catch (error) {
       setMessage(error.message);
     }
@@ -176,19 +381,18 @@ export default function App() {
         },
         token
       );
-      const appointmentsRes = await api.appointments.myAppointments(token);
-      setAppointments(appointmentsRes.items || []);
+      setNewAppointment(EMPTY_APPOINTMENT);
+      await refreshAppointments();
       setMessage("Cita creada.");
     } catch (error) {
       setMessage(error.message);
     }
   }
 
-  async function setStatus(id, status) {
+  async function updateAppointmentStatus(id, status) {
     try {
       await api.appointments.updateStatus(id, { status }, token);
-      const appointmentsRes = await api.appointments.myAppointments(token);
-      setAppointments(appointmentsRes.items || []);
+      await refreshAppointments();
       setMessage("Estado actualizado.");
     } catch (error) {
       setMessage(error.message);
@@ -198,8 +402,7 @@ export default function App() {
   async function cancelAppointment(id) {
     try {
       await api.appointments.cancel(id, token);
-      const appointmentsRes = await api.appointments.myAppointments(token);
-      setAppointments(appointmentsRes.items || []);
+      await refreshAppointments();
       setMessage("Cita cancelada.");
     } catch (error) {
       setMessage(error.message);
@@ -214,8 +417,7 @@ export default function App() {
     }
     try {
       const updated = await api.users.updateAdminUser(Number(adminSelectedId), adminForm, token);
-      const usersRes = await api.users.listUsers(token);
-      setUsers(usersRes.items || []);
+      await refreshAdminUsers();
       setAdminForm({
         full_name: updated.full_name || "",
         phone: updated.phone || "",
@@ -229,568 +431,870 @@ export default function App() {
     }
   }
 
-  function selectAdminUser(user) {
-    setAdminSelectedId(String(user.auth_user_id));
-    setAdminForm({
-      full_name: user.full_name || "",
-      phone: user.phone || "",
-      avatar_url: user.avatar_url || "",
-      role: user.role || "client",
-      is_active: Boolean(user.is_active),
-    });
+  async function createAdminUser(event) {
+    event.preventDefault();
+    try {
+      await api.users.createAdminUser(userCreateForm, token);
+      setUserCreateForm(EMPTY_USER_FORM);
+      setUserModalOpen(false);
+      await refreshAdminUsers();
+      setMessage("Usuario creado.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  async function deleteAdminUser(id) {
+    try {
+      await api.users.deleteAdminUser(id, token);
+      if (String(id) === adminSelectedId) {
+        setAdminSelectedId("");
+        setAdminForm(EMPTY_ADMIN_EDIT);
+      }
+      await refreshAdminUsers();
+      setMessage("Usuario eliminado.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  async function quickToggleUser(user) {
+    try {
+      await api.users.updateAdminUser(
+        user.auth_user_id,
+        { is_active: !user.is_active },
+        token
+      );
+      await refreshAdminUsers();
+      if (String(user.auth_user_id) === adminSelectedId) {
+        setAdminForm((current) => ({ ...current, is_active: !user.is_active }));
+      }
+      setMessage("Estado del usuario actualizado.");
+    } catch (error) {
+      setMessage(error.message);
+    }
   }
 
   const filteredUsers = useMemo(() => {
     if (!adminQuery) return users;
-    const q = adminQuery.toLowerCase();
-    return users.filter((u) =>
-      [u.full_name, u.email, String(u.auth_user_id), u.role].some((field) =>
-        String(field || "").toLowerCase().includes(q)
+    const query = adminQuery.toLowerCase();
+    return users.filter((user) =>
+      [user.full_name, user.email, user.role, String(user.auth_user_id)].some((field) =>
+        String(field || "").toLowerCase().includes(query)
       )
     );
   }, [adminQuery, users]);
 
-  const heroStats = useMemo(
+  const serviceStats = useMemo(() => {
+    const activeServices = services.filter((service) => service.is_active).length;
+    return {
+      total: services.length,
+      active: activeServices,
+      availabilityBlocks: availability.length,
+    };
+  }, [services, availability]);
+
+  const appointmentStats = useMemo(() => {
+    return {
+      total: appointments.length,
+      pending: appointments.filter((item) => item.status === "pendiente").length,
+      confirmed: appointments.filter((item) => item.status === "confirmada").length,
+      completed: appointments.filter((item) => item.status === "completada").length,
+    };
+  }, [appointments]);
+
+  const dashboardStats = useMemo(
     () => [
-      { label: "Citas activas", value: totalAppointments },
-      { label: "Servicios", value: totalServices },
-      { label: "Usuarios", value: authUser?.role === "admin" ? totalUsers : "-" },
+      {
+        label: "Usuarios",
+        value: isAdmin ? users.length : "-",
+        helper: isAdmin ? "Activos en la plataforma" : "Solo visible para admin",
+        icon: Users,
+      },
+      {
+        label: "Citas",
+        value: appointments.length,
+        helper: "Movimientos registrados",
+        icon: CalendarDays,
+      },
+      {
+        label: "Servicios",
+        value: services.length,
+        helper: "Catalogo disponible",
+        icon: Stethoscope,
+      },
+      {
+        label: "Pendientes",
+        value: appointmentStats.pending,
+        helper: "Esperando respuesta",
+        icon: Clock3,
+      },
     ],
-    [totalAppointments, totalServices, totalUsers, authUser]
+    [isAdmin, users.length, appointments.length, services.length, appointmentStats.pending]
+  );
+
+  const sidebarItems = useMemo(() => {
+    const items = [
+      { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { id: "appointments", label: "Citas", icon: CalendarDays },
+    ];
+    if (canManageServices) items.push({ id: "services", label: "Servicios", icon: Stethoscope });
+    if (isAdmin) items.push({ id: "users", label: "Usuarios", icon: UserCog });
+    items.push({ id: "settings", label: "Configuracion", icon: Settings });
+    return items;
+  }, [canManageServices, isAdmin]);
+
+  const recentAppointments = useMemo(() => appointments.slice(0, 6), [appointments]);
+  const quickInsights = useMemo(
+    () => [
+      {
+        label: "Conversion operativa",
+        value: `${appointments.length > 0 ? Math.round((appointmentStats.confirmed / appointments.length) * 100) : 0}%`,
+        note: "Citas confirmadas frente al total",
+        icon: ChartColumn,
+      },
+      {
+        label: "Actividad admin",
+        value: isAdmin ? `${users.filter((item) => item.is_active).length}` : `${appointmentStats.completed}`,
+        note: isAdmin ? "Usuarios activos en el sistema" : "Citas completadas",
+        icon: ShieldCheck,
+      },
+      {
+        label: "Disponibilidad",
+        value: `${availability.length}`,
+        note: "Bloques disponibles cargados",
+        icon: Activity,
+      },
+    ],
+    [appointments.length, appointmentStats.confirmed, appointmentStats.completed, availability.length, isAdmin, users]
   );
 
   if (!token || !authUser) {
     return (
-      <div className="app-shell">
-        <header className="topbar">
-          <div className="brand">
-            <span className="brand-mark" />
-            <div>
-              <p className="brand-title">CitasPro</p>
-              <p className="brand-subtitle">Microservicios para salud, belleza y bienestar</p>
+      <div className="auth-shell">
+        <div className="auth-hero">
+          <div className="hero-copy">
+            <span className="eyebrow">Sistema de citas</span>
+            <h1>Administra usuarios, servicios y citas desde un solo panel.</h1>
+            <p className="lead">
+              Una vista central para clientes, proveedores y administradores con procesos claros y rapidos.
+            </p>
+          </div>
+
+          <div className="hero-card">
+            {message && <div className="alert">{message}</div>}
+            <div className="auth-grid">
+              <div className="card">
+                <h2>Registro</h2>
+                <form className="grid" onSubmit={handleRegister}>
+                  <input
+                    placeholder="Nombre completo"
+                    value={registerData.full_name}
+                    onChange={(event) => setRegisterData({ ...registerData, full_name: event.target.value })}
+                    required
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={registerData.email}
+                    onChange={(event) => setRegisterData({ ...registerData, email: event.target.value })}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Contrasena"
+                    value={registerData.password}
+                    onChange={(event) => setRegisterData({ ...registerData, password: event.target.value })}
+                    required
+                  />
+                  <select value={registerData.role} onChange={(event) => setRegisterData({ ...registerData, role: event.target.value })}>
+                    <option value="client">Cliente</option>
+                    <option value="provider">Proveedor</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                  <button>Crear cuenta</button>
+                </form>
+              </div>
+
+              <div className="card">
+                <h2>Login</h2>
+                <form className="grid" onSubmit={handleLogin}>
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={loginData.email}
+                    onChange={(event) => setLoginData({ ...loginData, email: event.target.value })}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Contrasena"
+                    value={loginData.password}
+                    onChange={(event) => setLoginData({ ...loginData, password: event.target.value })}
+                    required
+                  />
+                  <button className="secondary">Iniciar sesion</button>
+                </form>
+              </div>
             </div>
           </div>
-          <nav className="nav">
-            <a href="#benefits">Beneficios</a>
-            <a href="#security">Seguridad</a>
-            <a href="#contact">Contacto</a>
-          </nav>
-          <div className="nav-actions">
-            <span className="pill">Demo en vivo</span>
-          </div>
-        </header>
-
-        <main className="container">
-          <section className="hero">
-            <div className="hero-content">
-              <p className="eyebrow">Control total de tu agenda</p>
-              <h1>Agenda, confirma y cobra con una experiencia premium.</h1>
-              <p className="lead">
-                Centraliza servicios, disponibilidad y citas en un solo lugar. Disenado para equipos que quieren menos
-                friccion y mas conversion.
-              </p>
-              <div className="hero-highlights">
-                <div className="highlight">
-                  <h3>Automatiza</h3>
-                  <p>Bloques de disponibilidad y recordatorios listos.</p>
-                </div>
-                <div className="highlight">
-                  <h3>Administra</h3>
-                  <p>Visibilidad de proveedores, clientes y estados.</p>
-                </div>
-                <div className="highlight">
-                  <h3>Crece</h3>
-                  <p>Panel claro para tomar decisiones rapidas.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="hero-card">
-              {message && <div className="alert">{message}</div>}
-              <div className="auth-grid">
-                <div className="card">
-                  <h2>Registro</h2>
-                  <p className="muted">Empieza en menos de un minuto.</p>
-                  <form className="grid" onSubmit={handleRegister}>
-                    <input
-                      placeholder="Nombre completo"
-                      value={registerData.full_name}
-                      onChange={(e) => setRegisterData({ ...registerData, full_name: e.target.value })}
-                      required
-                    />
-                    <input
-                      type="email"
-                      placeholder="Email"
-                      value={registerData.email}
-                      onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
-                      required
-                    />
-                    <input
-                      type="password"
-                      placeholder="Contrasena"
-                      value={registerData.password}
-                      onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
-                      required
-                    />
-                    <select value={registerData.role} onChange={(e) => setRegisterData({ ...registerData, role: e.target.value })}>
-                      <option value="client">Cliente</option>
-                      <option value="provider">Proveedor</option>
-                      <option value="admin">Administrador</option>
-                    </select>
-                    <button>Crear cuenta</button>
-                  </form>
-                </div>
-                <div className="card">
-                  <h2>Login</h2>
-                  <p className="muted">Accede a tu panel seguro.</p>
-                  <form className="grid" onSubmit={handleLogin}>
-                    <input
-                      type="email"
-                      placeholder="Email"
-                      value={loginData.email}
-                      onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
-                      required
-                    />
-                    <input
-                      type="password"
-                      placeholder="Contrasena"
-                      value={loginData.password}
-                      onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                      required
-                    />
-                    <button className="secondary">Iniciar sesion</button>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section id="benefits" className="section">
-            <div className="section-header">
-              <h2>Experiencia profesional para todos los roles</h2>
-              <p className="muted">Flujos claros, rapidez y control desde cualquier dispositivo.</p>
-            </div>
-            <div className="grid three">
-              <div className="card soft">
-                <h3>Panel inteligente</h3>
-                <p>Visualiza estados, volumen de citas y disponibilidad en segundos.</p>
-              </div>
-              <div className="card soft">
-                <h3>Roles definidos</h3>
-                <p>Permisos listos para administradores, proveedores y clientes.</p>
-              </div>
-              <div className="card soft">
-                <h3>Listo para escalar</h3>
-                <p>Arquitectura de microservicios preparada para crecer.</p>
-              </div>
-            </div>
-          </section>
-
-          <section id="security" className="section">
-            <div className="section-header">
-              <h2>Seguridad y confianza</h2>
-              <p className="muted">JWT, trazabilidad y datos centralizados en PostgreSQL.</p>
-            </div>
-            <div className="grid two">
-              <div className="card soft">
-                <h3>Autenticacion robusta</h3>
-                <p>Tokens seguros con expiracion configurable.</p>
-              </div>
-              <div className="card soft">
-                <h3>Disponibilidad alta</h3>
-                <p>Servicios separados para reducir puntos de falla.</p>
-              </div>
-            </div>
-          </section>
-        </main>
-
-        <footer id="contact" className="footer">
-          <div className="footer-brand">
-            <span className="brand-mark" />
-            <div>
-              <p className="brand-title">CitasPro</p>
-              <p className="muted">Agenda profesional en minutos.</p>
-            </div>
-          </div>
-          <div className="footer-links">
-            <div>
-              <p className="footer-title">Producto</p>
-              <a href="#benefits">Beneficios</a>
-              <a href="#security">Seguridad</a>
-              <a href="#contact">Contacto</a>
-            </div>
-            <div>
-              <p className="footer-title">Soporte</p>
-              <a href="mailto:soporte@citaspro.com">soporte@citaspro.com</a>
-              <a href="tel:+18000000000">+1 800 000 0000</a>
-            </div>
-            <div>
-              <p className="footer-title">Ubicaciones</p>
-              <p className="muted">Santo Domingo</p>
-              <p className="muted">Ciudad de Mexico</p>
-            </div>
-          </div>
-          <p className="footer-note">© 2026 CitasPro. Todos los derechos reservados.</p>
-        </footer>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" />
+      <aside className="sidebar">
+        <button className="sidebar-user" onClick={() => setActiveView("settings")}>
+          <Avatar
+            src={profile?.avatar_url}
+            name={profile?.full_name}
+            email={authUser.email}
+            alt="avatar"
+          />
           <div>
-            <p className="brand-title">CitasPro</p>
-            <p className="brand-subtitle">Panel operativo</p>
+            <strong>{profile?.full_name || authUser.email}</strong>
+            <span>{authUser.role}</span>
           </div>
-        </div>
-        <nav className="nav">
-          <a href="#dashboard">Dashboard</a>
-          <a href="#services">Servicios</a>
-          <a href="#appointments">Citas</a>
-          {authUser.role === "admin" && <a href="#admin">Admin</a>}
+        </button>
+
+        <nav className="side-nav">
+          {sidebarItems.map((item) => (
+            <button
+              key={item.id}
+              className={`nav-item ${activeView === item.id ? "active" : ""}`}
+              onClick={() => setActiveView(item.id)}
+            >
+              <item.icon size={18} strokeWidth={2.2} />
+              {item.label}
+            </button>
+          ))}
         </nav>
-        <div className="nav-actions">
-          <button className="profile-chip" onClick={() => setShowProfile(true)}>
-            <img src={profile?.avatar_url || DEFAULT_AVATAR} alt="avatar" />
-            <span>{profile?.full_name || authUser.email}</span>
-          </button>
-          <button className="danger" onClick={logout}>Cerrar sesion</button>
-        </div>
-      </header>
+      </aside>
 
-      <main className="container">
-        {showProfile && (
-          <section className="section">
-            <div className="section-header">
-              <h2>Mi cuenta</h2>
-              <button className="secondary" onClick={() => setShowProfile(false)}>Cerrar</button>
-            </div>
-            <div className="grid two">
-              <div className="card">
-                <div className="profile-header">
-                  <img src={profile?.avatar_url || DEFAULT_AVATAR} alt="avatar" />
-                  <div>
-                    <h3>{profile?.full_name || "Mi perfil"}</h3>
-                    <p className="muted">{authUser.email}</p>
-                  </div>
-                </div>
-                <form className="grid" onSubmit={saveProfile}>
-                  <input
-                    placeholder="Nombre completo"
-                    value={profile?.full_name || ""}
-                    onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
-                  />
-                  <input
-                    placeholder="Telefono"
-                    value={profile?.phone || ""}
-                    onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-                  />
-                  <input
-                    placeholder="Avatar URL"
-                    value={profile?.avatar_url || ""}
-                    onChange={(e) => setProfile({ ...profile, avatar_url: e.target.value })}
-                  />
-                  <button>Guardar perfil</button>
-                </form>
-              </div>
-              <div className="card">
-                <h3>Seguridad</h3>
-                <form className="grid" onSubmit={changePassword}>
-                  <input
-                    type="password"
-                    placeholder="Contrasena actual"
-                    value={passwordForm.current_password}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="Nueva contrasena"
-                    value={passwordForm.new_password}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
-                    required
-                  />
-                  <button className="secondary">Actualizar contrasena</button>
-                </form>
-              </div>
-            </div>
-          </section>
-        )}
+      <div className="workspace">
+        <header className="topbar">
+          <div>
+            <p className="topbar-title">CitasPro Admin</p>
+            <p className="topbar-subtitle">Panel central de usuarios, citas y servicios</p>
+          </div>
+          <div className="topbar-actions">
+            <button className="secondary small-btn" onClick={() => setActiveView("settings")}>
+              Configuracion
+            </button>
+            <button className="danger small-btn" onClick={logout}>
+              Cerrar sesion
+            </button>
+          </div>
+        </header>
 
-        <section id="dashboard" className="section">
-          <div className="section-header">
-            <h2>Dashboard</h2>
-            <p className="muted">Resumen operativo y acciones rapidas.</p>
-          </div>
-          <div className="stats">
-            {heroStats.map((stat) => (
-              <div key={stat.label} className="stat-card">
-                <p className="stat-label">{stat.label}</p>
-                <p className="stat-value">{stat.value}</p>
-              </div>
-            ))}
-          </div>
+        <main className="main-content">
           {message && <div className="alert">{message}</div>}
-        </section>
 
-        {profile && (
-          <section className="section">
-            <div className="section-header">
-              <h2>Mi perfil</h2>
-              <p className="muted">Actualiza tu informacion visible para clientes.</p>
-            </div>
-            <div className="card">
-              <form className="grid two" onSubmit={saveProfile}>
-                <input value={profile.full_name || ""} onChange={(e) => setProfile({ ...profile, full_name: e.target.value })} />
-                <input placeholder="Telefono" value={profile.phone || ""} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} />
-                <input placeholder="Avatar URL" value={profile.avatar_url || ""} onChange={(e) => setProfile({ ...profile, avatar_url: e.target.value })} />
-                <button>Guardar perfil</button>
-              </form>
-            </div>
-          </section>
-        )}
-
-        {(authUser.role === "provider" || authUser.role === "admin") && (
-          <section id="services" className="section">
-            <div className="section-header">
-              <h2>Servicios y disponibilidad</h2>
-              <p className="muted">Define lo que ofreces y cuando estas disponible.</p>
-            </div>
-            <div className="grid two">
-              <div className="card">
-                <h3>Crear servicio</h3>
-                <form className="grid" onSubmit={createService}>
-                  <input placeholder="Nombre" value={newService.name} onChange={(e) => setNewService({ ...newService, name: e.target.value })} required />
-                  <input placeholder="Descripcion" value={newService.description} onChange={(e) => setNewService({ ...newService, description: e.target.value })} />
-                  <div className="grid two">
-                    <input type="number" placeholder="Duracion (min)" value={newService.duration_min} onChange={(e) => setNewService({ ...newService, duration_min: e.target.value })} required />
-                    <input type="number" placeholder="Precio" value={newService.price} onChange={(e) => setNewService({ ...newService, price: e.target.value })} required />
-                  </div>
-                  <button>Guardar servicio</button>
-                </form>
-              </div>
-              <div className="card">
-                <h3>Disponibilidad</h3>
-                <form className="grid" onSubmit={createAvailability}>
-                  <select value={newAvailability.day_of_week} onChange={(e) => setNewAvailability({ ...newAvailability, day_of_week: e.target.value })}>
-                    <option value="0">Lunes</option>
-                    <option value="1">Martes</option>
-                    <option value="2">Miercoles</option>
-                    <option value="3">Jueves</option>
-                    <option value="4">Viernes</option>
-                    <option value="5">Sabado</option>
-                    <option value="6">Domingo</option>
-                  </select>
-                  <div className="grid two">
-                    <input type="time" value={newAvailability.start_time} onChange={(e) => setNewAvailability({ ...newAvailability, start_time: e.target.value })} required />
-                    <input type="time" value={newAvailability.end_time} onChange={(e) => setNewAvailability({ ...newAvailability, end_time: e.target.value })} required />
-                  </div>
-                  <button>Guardar bloque</button>
-                </form>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {(authUser.role === "client" || authUser.role === "admin") && (
-          <section className="section">
-            <div className="section-header">
-              <h2>Crear cita</h2>
-              <p className="muted">Selecciona servicio y horario disponible.</p>
-            </div>
-            <div className="card">
-              <form className="grid two" onSubmit={createAppointment}>
-                <input type="number" placeholder="Provider ID" value={newAppointment.provider_id} readOnly required />
-                <select
-                  value={newAppointment.service_id}
-                  onChange={(e) => {
-                    const nextServiceId = e.target.value;
-                    const service = services.find((item) => item.id === Number(nextServiceId));
-                    setNewAppointment({
-                      ...newAppointment,
-                      service_id: nextServiceId,
-                      provider_id: service ? String(service.provider_id) : "",
-                    });
-                  }}
-                  required
-                >
-                  <option value="">Selecciona servicio</option>
-                  {services.map((service) => (
-                    <option key={service.id} value={service.id}>
-                      #{service.id} {service.name} (Proveedor {service.provider_id})
-                    </option>
-                  ))}
-                </select>
-                {selectedService && (
-                  <div className="info-card">
-                    <p>
-                      Servicio: <strong>{selectedService.name}</strong>
-                    </p>
-                    <p>
-                      Duracion {selectedService.duration_min} min | Precio {selectedService.price}
-                    </p>
-                  </div>
-                )}
-                <input type="date" value={newAppointment.date} onChange={(e) => setNewAppointment({ ...newAppointment, date: e.target.value })} required />
-                <input type="time" value={newAppointment.start_time} onChange={(e) => setNewAppointment({ ...newAppointment, start_time: e.target.value })} required />
-                <textarea placeholder="Notas" value={newAppointment.notes} onChange={(e) => setNewAppointment({ ...newAppointment, notes: e.target.value })} />
-                <button>Reservar cita</button>
-              </form>
-            </div>
-          </section>
-        )}
-
-        <section id="appointments" className="section">
-          <div className="section-header">
-            <h2>Mis citas</h2>
-            <p className="muted">Administra estados y confirmaciones.</p>
-          </div>
-          <div className="grid">
-            {appointments.map((item) => (
-              <div key={item.id} className="card">
-                <div className="card-head">
-                  <div>
-                    <p className="muted">Cita #{item.id}</p>
-                    <h3>Servicio {item.service_id}</h3>
-                  </div>
-                  <span className={`status-badge status-${item.status}`}>{item.status}</span>
-                </div>
-                <p>
-                  Proveedor {item.provider_id} | Cliente {item.client_id}
-                </p>
-                <p>
-                  {item.date} {item.start_time} - {item.end_time}
-                </p>
-                <div className="row">
-                  {(authUser.role === "provider" || authUser.role === "admin") && item.status === "pendiente" && (
-                    <button onClick={() => setStatus(item.id, "confirmada")}>Confirmar</button>
-                  )}
-                  {(authUser.role === "provider" || authUser.role === "admin") && item.status === "confirmada" && (
-                    <button onClick={() => setStatus(item.id, "completada")}>Completar</button>
-                  )}
-                  {item.status !== "completada" && <button className="danger" onClick={() => cancelAppointment(item.id)}>Cancelar</button>}
+          {activeView === "dashboard" && (
+            <section className="screen">
+              <div className="screen-header">
+                <div>
+                  <h1>Dashboard general</h1>
+                  <p className="muted">Resumen global del sistema y actividad reciente.</p>
                 </div>
               </div>
-            ))}
-            {appointments.length === 0 && <p className="muted">Aun no hay citas.</p>}
-          </div>
-        </section>
 
-        {authUser.role === "admin" && (
-          <section id="admin" className="section">
-            <div className="section-header">
-              <h2>Usuarios del sistema</h2>
-              <p className="muted">Administra perfiles, roles y estado.</p>
-            </div>
-            <div className="grid two">
-              <div className="card">
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <h3>Directorio</h3>
-                  <input
-                    className="input-compact"
-                    placeholder="Buscar..."
-                    value={adminQuery}
-                    onChange={(e) => setAdminQuery(e.target.value)}
-                  />
+              <div className="hero-strip">
+                <div className="hero-strip-copy">
+                  <span className="eyebrow">Vista ejecutiva</span>
+                  <h2>Monitorea el pulso del sistema con indicadores rapidos.</h2>
+                  <p className="muted">
+                    Usuarios, agenda, servicios y carga operativa en una sola vista para tomar decisiones mas rapidas.
+                  </p>
                 </div>
-                <ul className="list">
-                  {filteredUsers.map((u) => (
-                    <li key={u.auth_user_id} className={`list-item ${String(u.auth_user_id) === adminSelectedId ? "active" : ""}`}>
-                      <button className="link-button" onClick={() => selectAdminUser(u)}>
+                <div className="hero-strip-badge">
+                  <Sparkles size={22} strokeWidth={2.3} />
+                  <span>Panel inteligente</span>
+                </div>
+              </div>
+
+              <div className="stats-grid">
+                {dashboardStats.map((stat) => (
+                  <article key={stat.label} className="stat-card">
+                    <div className="stat-card-top">
+                      <div className="stat-icon">
+                        <stat.icon size={20} strokeWidth={2.4} />
+                      </div>
+                      <span>{stat.label}</span>
+                    </div>
+                    <strong>{stat.value}</strong>
+                    <small>{stat.helper}</small>
+                  </article>
+                ))}
+              </div>
+
+              <div className="insights-grid">
+                {quickInsights.map((item) => (
+                  <article key={item.label} className="insight-card">
+                    <div className="insight-icon">
+                      <item.icon size={18} strokeWidth={2.4} />
+                    </div>
+                    <div>
+                      <span>{item.label}</span>
+                      <strong>{item.value}</strong>
+                      <p>{item.note}</p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="panel-grid">
+                <article className="card">
+                  <div className="section-head">
+                    <div className="section-head-title">
+                      <CalendarDays size={18} strokeWidth={2.3} />
+                      <h3>Citas</h3>
+                    </div>
+                    <span className="pill-sm">{appointments.length} total</span>
+                  </div>
+                  <div className="mini-stats">
+                    <div>
+                      <strong>{appointmentStats.pending}</strong>
+                      <span>Pendientes</span>
+                    </div>
+                    <div>
+                      <strong>{appointmentStats.confirmed}</strong>
+                      <span>Confirmadas</span>
+                    </div>
+                    <div>
+                      <strong>{appointmentStats.completed}</strong>
+                      <span>Completadas</span>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="card">
+                  <div className="section-head">
+                    <div className="section-head-title">
+                      <Stethoscope size={18} strokeWidth={2.3} />
+                      <h3>Servicios</h3>
+                    </div>
+                    <span className="pill-sm">{serviceStats.total} total</span>
+                  </div>
+                  <div className="mini-stats">
+                    <div>
+                      <strong>{serviceStats.active}</strong>
+                      <span>Activos</span>
+                    </div>
+                    <div>
+                      <strong>{serviceStats.availabilityBlocks}</strong>
+                      <span>Bloques</span>
+                    </div>
+                    <div>
+                      <strong>{isAdmin ? users.filter((item) => item.role === "provider").length : "-"}</strong>
+                      <span>Proveedores</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+
+              <div className="card">
+                <div className="section-head">
+                  <div className="section-head-title">
+                    <Activity size={18} strokeWidth={2.3} />
+                    <h3>Actividad reciente</h3>
+                  </div>
+                  <button className="ghost-btn" onClick={() => setActiveView("appointments")}>
+                    Ver todas las citas
+                  </button>
+                </div>
+                <div className="table-list">
+                  {recentAppointments.length > 0 ? (
+                    recentAppointments.map((item) => (
+                      <div key={item.id} className="table-row">
                         <div>
-                          <strong>#{u.auth_user_id}</strong> {u.full_name}
-                          <p className="muted">{u.email}</p>
+                          <strong>Cita #{item.id}</strong>
+                          <p className="muted">
+                            {item.date} {item.start_time} - {item.end_time}
+                          </p>
                         </div>
-                        <span className={`status-badge ${u.is_active ? "status-confirmada" : "status-cancelada"}`}>
-                          {u.is_active ? "activo" : "inactivo"}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                        <span className={`status-badge status-${item.status}`}>{statusLabel(item.status)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="muted">Todavia no hay citas registradas.</p>
+                  )}
+                </div>
               </div>
-              <div className="card">
-                <h3>Detalle y acciones</h3>
-                <form className="grid" onSubmit={saveAdminUser}>
-                  <input
-                    placeholder="Nombre completo"
-                    value={adminForm.full_name}
-                    onChange={(e) => setAdminForm({ ...adminForm, full_name: e.target.value })}
-                    required
-                  />
-                  <input
-                    placeholder="Telefono"
-                    value={adminForm.phone || ""}
-                    onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value })}
-                  />
-                  <input
-                    placeholder="Avatar URL"
-                    value={adminForm.avatar_url || ""}
-                    onChange={(e) => setAdminForm({ ...adminForm, avatar_url: e.target.value })}
-                  />
-                  <select value={adminForm.role} onChange={(e) => setAdminForm({ ...adminForm, role: e.target.value })}>
-                    <option value="client">Cliente</option>
-                    <option value="provider">Proveedor</option>
-                    <option value="admin">Administrador</option>
-                  </select>
-                  <div className="row">
-                    <button type="submit">Guardar cambios</button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setAdminForm({ ...adminForm, is_active: true })}
-                    >
-                      Activar
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => setAdminForm({ ...adminForm, is_active: false })}
-                    >
-                      Desactivar
-                    </button>
-                  </div>
-                </form>
-                <p className="muted" style={{ marginTop: "12px" }}>
-                  Recuerda guardar para aplicar cambios de rol o estado.
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
-      </main>
+            </section>
+          )}
 
-      <footer className="footer">
-        <div className="footer-brand">
-          <span className="brand-mark" />
-          <div>
-            <p className="brand-title">CitasPro</p>
-            <p className="muted">Panel operativo y experiencia premium.</p>
+          {activeView === "services" && canManageServices && (
+            <section className="screen">
+              <div className="screen-header">
+                <div>
+                  <h1>Servicios</h1>
+                  <p className="muted">Gestiona tu catalogo y los bloques de disponibilidad.</p>
+                </div>
+                <button onClick={openCreateServiceModal}>Agregar nuevo servicio</button>
+              </div>
+
+              <div className="panel-grid">
+                <article className="card">
+                  <div className="section-head">
+                    <h3>Listado</h3>
+                    <span className="pill-sm">{services.length} servicios</span>
+                  </div>
+                  <div className="table-list">
+                    {services.map((service) => (
+                      <div key={service.id} className="table-row">
+                        <div>
+                          <strong>{service.name}</strong>
+                          <p className="muted">
+                            {service.duration_min} min | RD$ {service.price}
+                          </p>
+                        </div>
+                        <div className="row">
+                          <button className="secondary compact-btn" onClick={() => openEditServiceModal(service)}>
+                            Editar
+                          </button>
+                          <button className="danger compact-btn" onClick={() => removeService(service.id)}>
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {services.length === 0 && <p className="muted">Aun no hay servicios creados.</p>}
+                  </div>
+                </article>
+
+                <article className="card">
+                  <div className="section-head">
+                    <h3>Disponibilidad</h3>
+                    <span className="pill-sm">{availability.length} bloques</span>
+                  </div>
+                  <div className="table-list">
+                    {availability.map((item) => (
+                      <div key={item.id} className="table-row">
+                        <div>
+                          <strong>{DAY_OPTIONS.find((day) => day.value === item.day_of_week)?.label || item.day_of_week}</strong>
+                          <p className="muted">
+                            {item.start_time} - {item.end_time}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                    {availability.length === 0 && <p className="muted">No hay bloques guardados todavia.</p>}
+                  </div>
+                </article>
+              </div>
+            </section>
+          )}
+
+          {activeView === "appointments" && (
+            <section className="screen">
+              <div className="screen-header">
+                <div>
+                  <h1>Citas</h1>
+                  <p className="muted">Controla reservas, estados y detalle de cada turno.</p>
+                </div>
+              </div>
+
+              {canCreateAppointments && (
+                <div className="card booking-card">
+                  <div className="section-head">
+                    <h3>Nueva cita</h3>
+                    <span className="pill-sm">Cliente / Admin</span>
+                  </div>
+                  <form className="grid two" onSubmit={createAppointment}>
+                    <input type="number" placeholder="Provider ID" value={newAppointment.provider_id} readOnly required />
+                    <select
+                      value={newAppointment.service_id}
+                      onChange={(event) => {
+                        const nextServiceId = event.target.value;
+                        const service = services.find((item) => item.id === Number(nextServiceId));
+                        setNewAppointment({
+                          ...newAppointment,
+                          service_id: nextServiceId,
+                          provider_id: service ? String(service.provider_id) : "",
+                        });
+                      }}
+                      required
+                    >
+                      <option value="">Selecciona servicio</option>
+                      {services.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          #{service.id} {service.name} (Proveedor {service.provider_id})
+                        </option>
+                      ))}
+                    </select>
+                    {selectedService && (
+                      <div className="info-card full-span">
+                        <p>
+                          <strong>{selectedService.name}</strong> | {selectedService.duration_min} min | RD$ {selectedService.price}
+                        </p>
+                      </div>
+                    )}
+                    <input
+                      type="date"
+                      value={newAppointment.date}
+                      onChange={(event) => setNewAppointment({ ...newAppointment, date: event.target.value })}
+                      required
+                    />
+                    <input
+                      type="time"
+                      value={newAppointment.start_time}
+                      onChange={(event) => setNewAppointment({ ...newAppointment, start_time: event.target.value })}
+                      required
+                    />
+                    <textarea
+                      className="full-span"
+                      placeholder="Notas"
+                      value={newAppointment.notes}
+                      onChange={(event) => setNewAppointment({ ...newAppointment, notes: event.target.value })}
+                    />
+                    <button className="full-span">Reservar cita</button>
+                  </form>
+                </div>
+              )}
+
+              <div className="card">
+                <div className="section-head">
+                  <h3>Listado de citas</h3>
+                  <span className="pill-sm">{appointments.length} registros</span>
+                </div>
+                <div className="table-list">
+                  {appointments.map((item) => (
+                    <div key={item.id} className="appointment-row">
+                      <div>
+                        <strong>Cita #{item.id}</strong>
+                        <p className="muted">
+                          Proveedor {item.provider_id} | Cliente {item.client_id}
+                        </p>
+                        <p className="muted">
+                          {item.date} {item.start_time} - {item.end_time}
+                        </p>
+                      </div>
+                      <div className="appointment-actions">
+                        <span className={`status-badge status-${item.status}`}>{statusLabel(item.status)}</span>
+                        <div className="row">
+                          {(authUser.role === "provider" || isAdmin) && item.status === "pendiente" && (
+                            <button className="compact-btn" onClick={() => updateAppointmentStatus(item.id, "confirmada")}>
+                              Aprobar
+                            </button>
+                          )}
+                          {(authUser.role === "provider" || isAdmin) && item.status === "confirmada" && (
+                            <button className="secondary compact-btn" onClick={() => updateAppointmentStatus(item.id, "completada")}>
+                              Completar
+                            </button>
+                          )}
+                          {item.status !== "completada" && (
+                            <button className="danger compact-btn" onClick={() => cancelAppointment(item.id)}>
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {appointments.length === 0 && <p className="muted">Aun no hay citas.</p>}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeView === "users" && isAdmin && (
+            <section className="screen">
+              <div className="screen-header">
+                <div>
+                  <h1>Usuarios</h1>
+                  <p className="muted">CRUD completo con acciones rapidas para administracion.</p>
+                </div>
+                <button onClick={() => setUserModalOpen(true)}>Agregar usuario</button>
+              </div>
+
+              <div className="panel-grid users-grid">
+                <article className="card">
+                  <div className="section-head">
+                    <h3>Directorio</h3>
+                    <input
+                      className="input-compact"
+                      placeholder="Buscar"
+                      value={adminQuery}
+                      onChange={(event) => setAdminQuery(event.target.value)}
+                    />
+                  </div>
+                  <div className="table-list">
+                    {filteredUsers.map((user) => (
+                      <div
+                        key={user.auth_user_id}
+                        className={`user-row ${String(user.auth_user_id) === adminSelectedId ? "selected" : ""}`}
+                      >
+                        <button className="user-main" onClick={() => selectAdminUser(user)}>
+                          <div>
+                            <strong>{user.full_name}</strong>
+                            <p className="muted">
+                              {user.email} | #{user.auth_user_id}
+                            </p>
+                          </div>
+                          <span className={`status-badge ${user.is_active ? "status-confirmada" : "status-cancelada"}`}>
+                            {user.is_active ? "Activo" : "Inactivo"}
+                          </span>
+                        </button>
+                        <div className="row quick-row">
+                          <button className="secondary compact-btn" onClick={() => quickToggleUser(user)}>
+                            {user.is_active ? "Desactivar" : "Activar"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+
+                <article className="card">
+                  <div className="section-head">
+                    <h3>Editar usuario</h3>
+                    <span className="pill-sm">{adminSelectedId ? `ID ${adminSelectedId}` : "Sin seleccion"}</span>
+                  </div>
+                  <form className="grid" onSubmit={saveAdminUser}>
+                    <input
+                      placeholder="Nombre completo"
+                      value={adminForm.full_name}
+                      onChange={(event) => setAdminForm({ ...adminForm, full_name: event.target.value })}
+                      required
+                    />
+                    <input
+                      placeholder="Telefono"
+                      value={adminForm.phone}
+                      onChange={(event) => setAdminForm({ ...adminForm, phone: event.target.value })}
+                    />
+                    <input
+                      placeholder="Avatar URL"
+                      value={adminForm.avatar_url}
+                      onChange={(event) => setAdminForm({ ...adminForm, avatar_url: event.target.value })}
+                    />
+                    <select value={adminForm.role} onChange={(event) => setAdminForm({ ...adminForm, role: event.target.value })}>
+                      <option value="client">Cliente</option>
+                      <option value="provider">Proveedor</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                    <select
+                      value={adminForm.is_active ? "true" : "false"}
+                      onChange={(event) => setAdminForm({ ...adminForm, is_active: event.target.value === "true" })}
+                    >
+                      <option value="true">Activo</option>
+                      <option value="false">Inactivo</option>
+                    </select>
+                    <button type="submit">Guardar cambios</button>
+                  </form>
+                </article>
+              </div>
+            </section>
+          )}
+
+          {activeView === "settings" && (
+            <section className="screen">
+              <div className="screen-header">
+                <div>
+                  <h1>Configuracion</h1>
+                  <p className="muted">Tu perfil ahora vive aqui y tambien en el acceso rapido del menu lateral.</p>
+                </div>
+              </div>
+
+              <div className="settings-layout">
+                <article className="card profile-card">
+                  <div className="profile-summary">
+                    <div className="avatar-wrapper" onClick={() => {
+                      const url = prompt("Ingresa la URL de tu foto de perfil:");
+                      if (url) setProfile({ ...profile, avatar_url: url });
+                    }}>
+                      <Avatar
+                        src={profile?.avatar_url}
+                        name={profile?.full_name}
+                        email={authUser.email}
+                        alt="avatar"
+                      />
+                      <div className="avatar-edit-icon">
+                        <Camera size={14} />
+                      </div>
+                    </div>
+                    <div>
+                      <h3>{profile?.full_name || authUser.email}</h3>
+                      <p className="muted">{authUser.email}</p>
+                      <span className="pill-sm">{authUser.role}</span>
+                    </div>
+                  </div>
+
+                  <form className="grid" onSubmit={saveSettings}>
+                    <input
+                      placeholder="Nombre completo"
+                      value={profile?.full_name || ""}
+                      onChange={(event) => setProfile({ ...profile, full_name: event.target.value })}
+                    />
+                    <input
+                      placeholder="Telefono"
+                      value={profile?.phone || ""}
+                      onChange={(event) => setProfile({ ...profile, phone: event.target.value })}
+                    />
+                    <button>Guardar configuracion</button>
+                  </form>
+                </article>
+
+                <article className="card">
+                  <h3>Seguridad</h3>
+                  <form className="grid" onSubmit={changePassword}>
+                    <input
+                      type="password"
+                      placeholder="Contrasena actual"
+                      value={passwordForm.current_password}
+                      onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })}
+                      required
+                    />
+                    <input
+                      type="password"
+                      placeholder="Nueva contrasena"
+                      value={passwordForm.new_password}
+                      onChange={(event) => setPasswordForm({ ...passwordForm, new_password: event.target.value })}
+                      required
+                    />
+                    <button className="secondary">Actualizar contrasena</button>
+                  </form>
+                </article>
+              </div>
+            </section>
+          )}
+        </main>
+      </div>
+
+      {serviceModalOpen && (
+        <div className="modal-backdrop" onClick={() => setServiceModalOpen(false)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="section-head">
+              <h3>{serviceForm.id ? "Editar servicio" : "Nuevo servicio"}</h3>
+              <button className="ghost-btn" onClick={() => setServiceModalOpen(false)}>
+                Cerrar
+              </button>
+            </div>
+            <form className="grid" onSubmit={submitService}>
+              <input
+                placeholder="Nombre del servicio"
+                value={serviceForm.name}
+                onChange={(event) => setServiceForm({ ...serviceForm, name: event.target.value })}
+                required
+              />
+              <textarea
+                placeholder="Descripcion"
+                value={serviceForm.description}
+                onChange={(event) => setServiceForm({ ...serviceForm, description: event.target.value })}
+              />
+              <div className="grid two">
+                <input
+                  type="number"
+                  placeholder="Duracion"
+                  value={serviceForm.duration_min}
+                  onChange={(event) => setServiceForm({ ...serviceForm, duration_min: event.target.value })}
+                  required
+                />
+                <input
+                  type="number"
+                  placeholder="Precio"
+                  value={serviceForm.price}
+                  onChange={(event) => setServiceForm({ ...serviceForm, price: event.target.value })}
+                  required
+                />
+              </div>
+
+              {!serviceForm.id && (
+                <>
+                  <div>
+                    <p className="field-label">Dias disponibles</p>
+                    <div className="days-grid">
+                      {DAY_OPTIONS.map((day) => (
+                        <button
+                          type="button"
+                          key={day.value}
+                          className={`day-chip ${serviceForm.days_of_week.includes(day.value) ? "selected" : ""}`}
+                          onClick={() => toggleDay(day.value)}
+                        >
+                          {day.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid two">
+                    <input
+                      type="time"
+                      value={serviceForm.start_time}
+                      onChange={(event) => setServiceForm({ ...serviceForm, start_time: event.target.value })}
+                      required
+                    />
+                    <input
+                      type="time"
+                      value={serviceForm.end_time}
+                      onChange={(event) => setServiceForm({ ...serviceForm, end_time: event.target.value })}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+
+              <button>{serviceForm.id ? "Guardar cambios" : "Crear servicio"}</button>
+            </form>
           </div>
         </div>
-        <div className="footer-links">
-          <div>
-            <p className="footer-title">Accesos</p>
-            <a href="#dashboard">Dashboard</a>
-            <a href="#services">Servicios</a>
-            <a href="#appointments">Citas</a>
-          </div>
-          <div>
-            <p className="footer-title">Contacto</p>
-            <a href="mailto:soporte@citaspro.com">soporte@citaspro.com</a>
-            <a href="tel:+18000000000">+1 800 000 0000</a>
-          </div>
-          <div>
-            <p className="footer-title">Estado</p>
-            <p className="muted">Microservicios activos</p>
-            <p className="muted">PostgreSQL saludable</p>
+      )}
+
+      {userModalOpen && (
+        <div className="modal-backdrop" onClick={() => setUserModalOpen(false)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="section-head">
+              <h3>Agregar usuario</h3>
+              <button className="ghost-btn" onClick={() => setUserModalOpen(false)}>
+                Cerrar
+              </button>
+            </div>
+            <form className="grid" onSubmit={createAdminUser}>
+              <input
+                placeholder="Nombre completo"
+                value={userCreateForm.full_name}
+                onChange={(event) => setUserCreateForm({ ...userCreateForm, full_name: event.target.value })}
+                required
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={userCreateForm.email}
+                onChange={(event) => setUserCreateForm({ ...userCreateForm, email: event.target.value })}
+                required
+              />
+              <input
+                type="password"
+                placeholder="Contrasena temporal"
+                value={userCreateForm.password}
+                onChange={(event) => setUserCreateForm({ ...userCreateForm, password: event.target.value })}
+                required
+              />
+              <select
+                value={userCreateForm.role}
+                onChange={(event) => setUserCreateForm({ ...userCreateForm, role: event.target.value })}
+              >
+                <option value="client">Cliente</option>
+                <option value="provider">Proveedor</option>
+                <option value="admin">Administrador</option>
+              </select>
+              <input
+                placeholder="Telefono"
+                value={userCreateForm.phone}
+                onChange={(event) => setUserCreateForm({ ...userCreateForm, phone: event.target.value })}
+              />
+              <input
+                placeholder="Avatar URL"
+                value={userCreateForm.avatar_url}
+                onChange={(event) => setUserCreateForm({ ...userCreateForm, avatar_url: event.target.value })}
+              />
+              <button>Crear usuario</button>
+            </form>
           </div>
         </div>
-        <p className="footer-note">© 2026 CitasPro. Todos los derechos reservados.</p>
-      </footer>
+      )}
     </div>
   );
 }

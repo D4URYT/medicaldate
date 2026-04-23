@@ -132,6 +132,21 @@ async def fetch_auth_user(auth_user_id: int, token: str) -> dict:
     return response.json()
 
 
+async def fetch_auth_users(token: str) -> list[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                f"{AUTH_SERVICE_URL}/users",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Auth service unavailable") from exc
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=400, detail="Failed to list users from auth-service")
+    return response.json().get("items", [])
+
+
 async def sync_auth_role(auth_user_id: int, role: str, token: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -162,6 +177,38 @@ async def sync_auth_active(auth_user_id: int, is_active: bool, token: str) -> No
         raise HTTPException(status_code=400, detail="Failed to update status in auth-service")
 
 
+async def create_auth_user(payload: dict, token: str) -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{AUTH_SERVICE_URL}/admin/users",
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Auth service unavailable") from exc
+
+    if response.status_code != 200:
+        detail = response.json().get("detail", "Failed to create user in auth-service")
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    return response.json()
+
+
+async def delete_auth_user(auth_user_id: int, token: str) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.delete(
+                f"{AUTH_SERVICE_URL}/users/{auth_user_id}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Auth service unavailable") from exc
+
+    if response.status_code != 200:
+        detail = response.json().get("detail", "Failed to delete user in auth-service")
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+
 async def ensure_profile_exists_for_admin(auth_user_id: int, token: str) -> None:
     with get_conn() as conn:
         existing = conn.execute("SELECT id FROM users WHERE auth_user_id = %s", (auth_user_id,)).fetchone()
@@ -186,6 +233,53 @@ async def ensure_profile_exists_for_admin(auth_user_id: int, token: str) -> None
                 now,
             ),
         )
+
+
+async def sync_profiles_from_auth(token: str) -> None:
+    auth_users = await fetch_auth_users(token)
+    now = datetime.now(timezone.utc)
+    with get_conn() as conn:
+        for auth_user in auth_users:
+            existing = conn.execute(
+                "SELECT id FROM users WHERE auth_user_id = %s",
+                (auth_user["id"],),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET email = %s,
+                        role = %s,
+                        full_name = %s,
+                        is_active = %s,
+                        updated_at = %s
+                    WHERE auth_user_id = %s
+                    """,
+                    (
+                        auth_user["email"],
+                        auth_user["role"],
+                        auth_user["full_name"],
+                        auth_user["is_active"],
+                        now,
+                        auth_user["id"],
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO users (auth_user_id, email, role, full_name, is_active, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        auth_user["id"],
+                        auth_user["email"],
+                        auth_user["role"],
+                        auth_user["full_name"],
+                        auth_user["is_active"],
+                        now,
+                        now,
+                    ),
+                )
 
 
 @app.get("/health")
@@ -231,6 +325,7 @@ async def list_users(user: dict = Depends(verify_token)) -> dict:
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
 
+    await sync_profiles_from_auth(user["token"])
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT auth_user_id, email, role, full_name, phone, avatar_url, is_active, created_at FROM users ORDER BY id DESC"
@@ -298,6 +393,66 @@ async def update_admin_user(auth_user_id: int, payload: AdminUserUpdatePayload, 
             (auth_user_id,),
         ).fetchone()
     return dict(row)
+
+
+class AdminUserCreatePayload(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    role: Literal["admin", "provider", "client"] = "client"
+    phone: str | None = None
+    avatar_url: str | None = None
+
+
+@app.post("/admin/users")
+async def create_admin_user(payload: AdminUserCreatePayload, user: dict = Depends(verify_token)) -> dict:
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+    created_auth_user = await create_auth_user(
+        {
+            "full_name": payload.full_name,
+            "email": payload.email,
+            "password": payload.password,
+            "role": payload.role,
+        },
+        user["token"],
+    )
+    now = datetime.now(timezone.utc)
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (auth_user_id, email, role, full_name, phone, avatar_url, is_active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                created_auth_user["id"],
+                created_auth_user["email"],
+                created_auth_user["role"],
+                payload.full_name.strip(),
+                payload.phone,
+                payload.avatar_url,
+                True,
+                now,
+                now,
+            ),
+        )
+        row = conn.execute(
+            "SELECT auth_user_id, email, role, full_name, phone, avatar_url, is_active, created_at FROM users WHERE auth_user_id = %s",
+            (created_auth_user["id"],),
+        ).fetchone()
+    return dict(row)
+
+
+@app.delete("/admin/users/{auth_user_id}")
+async def delete_admin_user(auth_user_id: int, user: dict = Depends(verify_token)) -> dict:
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+    await delete_auth_user(auth_user_id, user["token"])
+    with get_conn() as conn:
+        conn.execute("DELETE FROM users WHERE auth_user_id = %s", (auth_user_id,))
+    return {"message": "User deleted"}
 
 
 @app.get("/internal/users/{auth_user_id}")

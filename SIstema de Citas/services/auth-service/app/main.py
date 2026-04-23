@@ -255,6 +255,38 @@ def update_role(user_id: int, payload: RolePayload, token: str = Depends(get_tok
     return {"message": "Role updated"}
 
 
+@app.post("/admin/users")
+def create_user_admin(payload: RegisterPayload, token: str = Depends(get_token_from_header)) -> dict:
+    ensure_admin(token)
+
+    with get_conn() as conn:
+        existing = conn.execute("SELECT id FROM credentials WHERE email = %s", (payload.email.lower(),)).fetchone()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+        password_hash = pwd_context.hash(payload.password)
+        created_at = datetime.now(timezone.utc)
+        row = conn.execute(
+            """
+            INSERT INTO credentials (full_name, email, password_hash, role, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, full_name, email, role, is_active, created_at
+            """,
+            (payload.full_name.strip(), payload.email.lower(), password_hash, payload.role, created_at),
+        ).fetchone()
+    return dict(row)
+
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int, token: str = Depends(get_token_from_header)) -> dict:
+    ensure_admin(token)
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM credentials WHERE id = %s", (user_id,))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User deleted"}
+
+
 @app.patch("/change-password")
 def change_password(payload: ChangePasswordPayload, token: str = Depends(get_token_from_header)) -> dict:
     caller = decode_token(token)

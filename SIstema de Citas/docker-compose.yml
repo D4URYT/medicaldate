@@ -66,13 +66,13 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_AUTH_API=http://localhost:8001
-      - VITE_USERS_API=http://localhost:8002
-      - VITE_APPOINTMENTS_API=http://localhost:8003
+      - VITE_AUTH_API=http://auth-service:8001
+      - VITE_USERS_API=http://users-service:8002
+      - VITE_APPOINTMENTS_API=http://appointments-service:8003
     depends_on:
       - auth-service
       - users-service
       - appointments-service
-
+      
 volumes:
   pg_data:

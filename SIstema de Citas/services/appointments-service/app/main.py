@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 APP_NAME = "appointments-service"
 DB_DSN = os.getenv("APPOINTMENTS_DB_DSN", "postgresql://citas_user:citas_pass@db:5432/citas_db")
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service:8001")
-USERS_SERVICE_URL = os.getenv("USERS_SERVICE_URL", "http://users-service:8002")
 
 app = FastAPI(title=APP_NAME)
 
@@ -34,7 +33,7 @@ class ServicePayload(BaseModel):
 
 
 class AvailabilityPayload(BaseModel):
-    day_of_week: int = Field(ge=0, le=6)
+    days_of_week: list[int] = Field(min_length=1, max_length=7)
     start_time: str
     end_time: str
 
@@ -49,6 +48,14 @@ class AppointmentPayload(BaseModel):
 
 class StatusPayload(BaseModel):
     status: Literal["pendiente", "confirmada", "completada", "cancelada"]
+
+
+class ServiceUpdatePayload(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    duration_min: int | None = Field(default=None, ge=15, le=240)
+    price: float | None = Field(default=None, ge=0)
+    is_active: bool | None = None
 
 
 def parse_hhmm(value: str) -> time:
@@ -146,21 +153,6 @@ async def verify_token(token: str = Depends(get_token_from_header)) -> dict:
     return payload
 
 
-async def get_user_basic(user_id: int, token: str) -> dict:
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(
-                f"{USERS_SERVICE_URL}/internal/users/{user_id}",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=503, detail="Users service unavailable") from exc
-
-    if response.status_code != 200:
-        raise HTTPException(status_code=404, detail=f"User {user_id} not found in users-service")
-    return response.json()
-
-
 @app.get("/health")
 def health() -> dict:
     return {"service": APP_NAME, "status": "ok"}
@@ -205,17 +197,23 @@ async def create_availability(payload: AvailabilityPayload, user: dict = Depends
     end_t = parse_hhmm(payload.end_time)
     if start_t >= end_t:
         raise HTTPException(status_code=400, detail="start_time must be before end_time")
+    unique_days = sorted(set(payload.days_of_week))
+    if any(day < 0 or day > 6 for day in unique_days):
+        raise HTTPException(status_code=400, detail="days_of_week must contain values between 0 and 6")
 
     with get_conn() as conn:
-        row = conn.execute(
-            """
-            INSERT INTO availability (provider_id, day_of_week, start_time, end_time)
-            VALUES (%s, %s, %s, %s)
-            RETURNING *
-            """,
-            (user["user_id"], payload.day_of_week, payload.start_time, payload.end_time),
-        ).fetchone()
-    return dict(row)
+        created = []
+        for day_of_week in unique_days:
+            row = conn.execute(
+                """
+                INSERT INTO availability (provider_id, day_of_week, start_time, end_time)
+                VALUES (%s, %s, %s, %s)
+                RETURNING *
+                """,
+                (user["user_id"], day_of_week, payload.start_time, payload.end_time),
+            ).fetchone()
+            created.append(dict(row))
+    return {"items": created}
 
 
 @app.get("/availability/{provider_id}")
@@ -226,6 +224,56 @@ def get_availability(provider_id: int) -> dict:
             (provider_id,),
         ).fetchall()
     return {"items": [dict(r) for r in rows]}
+
+
+@app.patch("/services/{service_id}")
+async def update_service(service_id: int, payload: ServiceUpdatePayload, user: dict = Depends(verify_token)) -> dict:
+    if user["role"] not in ("provider", "admin"):
+        raise HTTPException(status_code=403, detail="Provider role required")
+
+    with get_conn() as conn:
+        current = conn.execute("SELECT * FROM services WHERE id = %s", (service_id,)).fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="Service not found")
+        if user["role"] == "provider" and current["provider_id"] != user["user_id"]:
+            raise HTTPException(status_code=403, detail="Cannot modify this service")
+
+        updated_name = payload.name.strip() if payload.name is not None else current["name"]
+        updated_description = payload.description if payload.description is not None else current["description"]
+        updated_duration = payload.duration_min if payload.duration_min is not None else current["duration_min"]
+        updated_price = payload.price if payload.price is not None else current["price"]
+        updated_active = payload.is_active if payload.is_active is not None else current["is_active"]
+
+        conn.execute(
+            """
+            UPDATE services
+            SET name = %s,
+                description = %s,
+                duration_min = %s,
+                price = %s,
+                is_active = %s
+            WHERE id = %s
+            """,
+            (updated_name, updated_description, updated_duration, updated_price, updated_active, service_id),
+        )
+        row = conn.execute("SELECT * FROM services WHERE id = %s", (service_id,)).fetchone()
+    return dict(row)
+
+
+@app.delete("/services/{service_id}")
+async def delete_service(service_id: int, user: dict = Depends(verify_token)) -> dict:
+    if user["role"] not in ("provider", "admin"):
+        raise HTTPException(status_code=403, detail="Provider role required")
+
+    with get_conn() as conn:
+        current = conn.execute("SELECT * FROM services WHERE id = %s", (service_id,)).fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="Service not found")
+        if user["role"] == "provider" and current["provider_id"] != user["user_id"]:
+            raise HTTPException(status_code=403, detail="Cannot delete this service")
+
+        conn.execute("DELETE FROM services WHERE id = %s", (service_id,))
+    return {"message": "Service deleted"}
 
 
 def ensure_slot_available(
@@ -291,9 +339,6 @@ async def create_appointment(payload: AppointmentPayload, user: dict = Depends(v
                 break
         if not in_available_block:
             raise HTTPException(status_code=400, detail="Appointment is outside provider availability")
-
-        await get_user_basic(payload.provider_id, user["token"])
-        await get_user_basic(user["user_id"], user["token"])
 
         ensure_slot_available(conn, payload.provider_id, payload.date, payload.start_time, end_t.strftime("%H:%M"))
 
